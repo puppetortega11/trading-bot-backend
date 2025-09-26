@@ -1,6 +1,7 @@
 const express = require('express')
 const cors = require('cors')
 const { Connection, PublicKey, LAMPORTS_PER_SOL } = require('@solana/web3.js')
+const { initializeDatabase, db } = require('./database')
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -70,6 +71,9 @@ app.get('/api/bot/balance', async (req, res) => {
       }
     }
 
+    // Record balance in database
+    await db.recordWalletBalance(BOT_WALLET_ADDRESS, balance)
+
     res.json({
       success: true,
       balance: balance,
@@ -87,16 +91,9 @@ app.get('/api/bot/balance', async (req, res) => {
 })
 
 // Bot status endpoint
-app.get('/api/bot/status', (req, res) => {
+app.get('/api/bot/status', async (req, res) => {
   try {
-    const botStatus = {
-      isRunning: false,
-      lastUpdate: new Date().toISOString(),
-      totalTrades: 0,
-      activePositions: 0,
-      backendConnected: true
-    }
-
+    const botStatus = await db.getBotStatus()
     res.json({
       success: true,
       status: botStatus
@@ -111,16 +108,28 @@ app.get('/api/bot/status', (req, res) => {
 })
 
 // Start/stop bot endpoint
-app.post('/api/bot/status', (req, res) => {
+app.post('/api/bot/status', async (req, res) => {
   try {
     const { action } = req.body
     
     if (action === 'start') {
+      await db.updateBotStatus({
+        is_running: true,
+        total_trades: 0,
+        active_positions: 0,
+        backend_connected: true
+      })
       res.json({
         success: true,
         message: 'Bot started successfully'
       })
     } else if (action === 'stop') {
+      await db.updateBotStatus({
+        is_running: false,
+        total_trades: 0,
+        active_positions: 0,
+        backend_connected: true
+      })
       res.json({
         success: true,
         message: 'Bot stopped successfully'
@@ -141,20 +150,9 @@ app.post('/api/bot/status', (req, res) => {
 })
 
 // Trades endpoint
-app.get('/api/trades', (req, res) => {
+app.get('/api/trades', async (req, res) => {
   try {
-    const trades = [
-      {
-        id: '1',
-        token: 'BONK',
-        action: 'buy',
-        amount: 1000000,
-        price: 0.00001234,
-        timestamp: new Date().toISOString(),
-        profit: 0
-      }
-    ]
-
+    const trades = await db.getTrades()
     res.json({
       success: true,
       trades: trades
@@ -169,25 +167,11 @@ app.get('/api/trades', (req, res) => {
 })
 
 // Profit data endpoint
-app.get('/api/profit', (req, res) => {
+app.get('/api/profit', async (req, res) => {
   try {
     const timeframe = req.query.timeframe || 'day'
+    const profitData = await db.getProfitData(timeframe)
     
-    const profitData = {
-      timeframe,
-      totalProfit: 0.0,
-      totalLoss: 0.0,
-      netProfit: 0.0,
-      winRate: 0,
-      trades: 0,
-      chartData: [
-        { time: '00:00', profit: 0 },
-        { time: '06:00', profit: 0 },
-        { time: '12:00', profit: 0 },
-        { time: '18:00', profit: 0 }
-      ]
-    }
-
     res.json({
       success: true,
       data: profitData
@@ -202,19 +186,9 @@ app.get('/api/profit', (req, res) => {
 })
 
 // Strategy endpoint
-app.get('/api/bot/strategy', (req, res) => {
+app.get('/api/bot/strategy', async (req, res) => {
   try {
-    const strategy = {
-      name: 'Aggressive Meme Token Strategy',
-      description: 'High-frequency trading strategy focused on Solana meme tokens with advanced technical analysis',
-      riskLevel: 'High',
-      expectedReturn: '15-25% daily',
-      maxPosition: '10%',
-      stopLoss: '5%',
-      takeProfit: '15%',
-      enabled: true
-    }
-
+    const strategy = await db.getStrategy()
     res.json({
       success: true,
       strategy: strategy
@@ -229,9 +203,10 @@ app.get('/api/bot/strategy', (req, res) => {
 })
 
 // Update strategy endpoint
-app.post('/api/bot/strategy', (req, res) => {
+app.post('/api/bot/strategy', async (req, res) => {
   try {
     const strategyData = req.body
+    await db.updateStrategy(strategyData)
     
     res.json({
       success: true,
@@ -247,9 +222,22 @@ app.post('/api/bot/strategy', (req, res) => {
   }
 })
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Trading Bot Backend running on port ${PORT}`)
-  console.log(`Health check: http://localhost:${PORT}/health`)
-  console.log(`Bot wallet: ${BOT_WALLET_ADDRESS}`)
-})
+// Initialize database and start server
+async function startServer() {
+  try {
+    await initializeDatabase()
+    console.log('✅ Database initialized successfully')
+    
+    app.listen(PORT, () => {
+      console.log(`🚀 Trading Bot Backend running on port ${PORT}`)
+      console.log(`🔍 Health check: http://localhost:${PORT}/health`)
+      console.log(`💰 Bot wallet: ${BOT_WALLET_ADDRESS}`)
+      console.log(`📊 Database: Connected and ready`)
+    })
+  } catch (error) {
+    console.error('❌ Failed to start server:', error)
+    process.exit(1)
+  }
+}
+
+startServer()
